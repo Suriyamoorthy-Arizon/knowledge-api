@@ -1,27 +1,7 @@
 import { Request, Response } from "express";
 import db from "../config/db.js";
+import { askGemini } from "../services/geminiService.js";
 
-// export const getAllArticles = async (
-//   req: Request,
-//   res: Response,
-// ): Promise<void> => {
-//   try {
-//     const result = await db.query("SELECT * FROM articles ORDER BY id DESC");
-
-//     res.status(200).json({
-//       success: true,
-//       total: result.rowCount,
-//       data: result.rows,
-//     });
-//   } catch (error) {
-//     console.error(error);
-
-//     res.status(500).json({
-//       success: false,
-//       message: "Database Error",
-//     });
-//   }
-// };
 export const getAllArticles = async (
   req: Request,
   res: Response,
@@ -45,11 +25,11 @@ export const getAllArticles = async (
     if (search) {
       values.push(`%${search}%`);
       whereClause += `
-      AND (
-        title ILIKE $${values.length}
-        OR description ILIKE $${values.length}
-        OR category ILIKE $${values.length}
-      )`;
+        AND (
+          title ILIKE $${values.length}
+          OR description ILIKE $${values.length}
+          OR category ILIKE $${values.length}
+        )`;
     }
 
     if (category) {
@@ -57,6 +37,7 @@ export const getAllArticles = async (
       whereClause += ` AND category = $${values.length}`;
     }
 
+    // Total Count
     const countQuery = `
       SELECT COUNT(*) AS total
       FROM articles
@@ -65,8 +46,9 @@ export const getAllArticles = async (
 
     const countResult = await db.query(countQuery, values);
 
-    values.push(limit);
-    values.push(offset);
+    // Query Data
+    values?.push(limit);
+    values?.push(offset);
 
     const query = `
       SELECT *
@@ -78,11 +60,36 @@ export const getAllArticles = async (
     `;
 
     const result = await db.query(query, values);
-
     const total = Number(countResult.rows[0].total);
+
+    if (search && result.rows.length === 0) {
+      const answer = await askGemini(search);
+
+      return res.json({
+        success: true,
+        source: "gemini",
+        pagination: {
+          page,
+          limit,
+          totalRecords: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        filters: {
+          search,
+          category,
+          sortBy,
+          order,
+        },
+        data: [],
+        answer,
+      });
+    }
 
     res.json({
       success: true,
+      source: "database",
 
       pagination: {
         page,
